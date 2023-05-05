@@ -1,0 +1,291 @@
+---
+title: "Proyecto de graduacion SIGMA"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::material:
+    highlight: kate
+---
+
+
+```{r setup, include=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print="75")
+opts_chunk$set(echo=TRUE,
+	             cache=TRUE,
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=75)
+```
+
+# Introduccion
+
+### Estuadiantes: Adriana Corrales Quesada & Brandon Céspedes Morales 
+
+## Justificacion
+
+### Actualmente los mercados financieros ofrecen diversas alternativas de inversión, que incluyen una gran variedad de activos, los cuales se diferencian entre sí, por el nivel de rentabilidad, liquidez, volatilidad y bursatilidad, asociada con los mismos; lo que conlleva a que los inversionistas utilicen diversas herramientas que les permitan escoger inversiones óptimas incurriendo en un nivel de riesgo determinado. 
+
+
+### En este sentido, la diversificación de los portafolios de inversión es de suma importancia, ya que permite establecer qué activos son los más apropiados para conformar el portafolio de inversión, en la medida en que se logré minimizar las pérdidas de este, de acuerdo con los movimientos propios del mercado.
+
+### A partir de lo expuesto anteriormente y buscando crear una herramienta que permita realizar un análisis comparativo de portafolios de inversión de los diferentes participantes del sistema financiero, se realiza este trabajo con base en la teoría moderna de portafolios de Harry Markowitz (1952) y utilizando para ello un análisis de clúster. 
+
+## Objetivo General
+
+### Desarrollar una herramienta que permita identificar de los portafolios más equilibrados en términos de rendimiento-riesgo, del sistema financiero.
+
+## Datos a utilizar
+
+### Se utilizará una tabla con las cotizaciones históricas de las diferentes opciones de inversión que forman parte de los portafolios de las entidades financieras y otra tabla de datos con los portafolios de inversión que serán parte del análisis. Por un tema de confidencialidad, no se reflejará el nombre de las entidades en el proyecto, se utilizará un código.
+
+### Por otra parte, debido a que los portafolios de inversión en Costa Rica están altamente correlacionados por la activa participación del Ministerio de Hacienda en el mercado local, se utilizarán portafolios ficticios, con el fin de realizar el análisis y determinar los portafolios de inversión más eficientes. 
+
+### La tabla con las cotizaciones históricas posee como variable cada título u opción de inversión. Las filas son las fechas en las que se registró el respectivo precio. La tabla de portafolios incluye las siguientes variables: Tipo de moneda, Tipo de instrumento, Emisor, Rendimiento, Calificación crediticia del emisor, Monto de la inversión, Entidad, entre otras. Las filas serán cada una de las inversiones.
+
+### Se hará uso de las siguientes paquetes.
+
+```{r}
+library(RSDA)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(FactoMineR)
+library(factoextra)
+library(corrplot)
+library(Hmisc)
+library(cluster)
+```
+
+
+# Análisis estadístico: {.tabset .tabset-pills .tabset-fade}
+
+## Se carga la base de datos:
+
+```{r}
+datos <- read_excel("C:/Users/Brandon/Desktop/Proyecto de Graduacion Promidat/Datos_simulacion (1).xlsx")
+str(datos)
+```
+
+## Se convierten los datos a rendimientos y se vuelve a cargar la base de datos: 
+
+Al ser series de tiempo correspondientes a cotizaciones de diferentes opciones de inversión, es importante convertir los precios a rendimientos mediante ln(X/X t-1) esto para que las cotizaciones sean comparables:
+
+```{r}
+datos <- read_excel("C:/Users/Brandon/Desktop/Proyecto de Graduacion Promidat/Datos_simulacion (1).xlsx", 
+    sheet = "Datos_ln")
+datos <- na.omit(datos)
+datos$Dates<- as.Date(datos$Dates)
+str(datos)
+```
+
+## Analisis de Componentes Principales
+
+A continuacion se realizara un Analisis en Componentes Principales (ACP) ya que le objetivo de este es construir un numero reducido de nuevas variables en las que se concentre la mayor cantidad posible de informacion de manera que en nuestro caso sera ver la agrupacion de las variables de la cartera de inversion.
+
+```{r}
+datos1 <- datos %>% select(-Dates)
+```
+
+```{r, fig.width=20, fig.height=20}
+modelo <- PCA(datos1, scale.unit = TRUE, ncp =  4, graph = F)
+fviz_pca_var(X = modelo,
+col.var = "steelblue")
+```
+
+Es posible ver que las variables se podrian agrupar por cuadrantes en las cuales las del primer cuadrante estarian correlacionadas positivamente igual que las del 4to cuadrante y algunas de estas estarian correlacionadas negativamente con el Peso MXN el real y el yen que serian las variables mas alejadas.
+
+```{r, fig.width=20, fig.height=20}
+fviz_pca_ind(X = modelo,
+pointsize = 5,
+pointshape = 21,
+fill = "#E7B800")
+```
+
+Es posible observar que los puntos en este grafico se podrian dividir por cuadrante obteniendo 4 grandes cluster o podriamos dividirlo en 2 grandes clusters quedara mas claro mas adelante.
+
+## Eliminacion de individuo mal representados
+
+Ahora se procede a eliminar los individuos mal representados con un (coseno cuadrado menor al 20%)
+
+```{r}
+cos2.ind <- (modelo$ind$cos2[,1] + modelo$ind$cos2[,2])*100
+cos2.var <- (modelo$var$cos2[,1] + modelo$var$cos2[,2])*100
+round(cos2.var,2)
+```
+
+Se observan cuales variables se encuentran bien representadas y cuales no tan bien.
+
+```{r, fig.width=20, fig.height=20}
+fviz_pca_ind(modelo,
+pointsize = 5,
+pointshape = 21,
+fill = "#E7B800",
+select.ind = list(cos2 = 0.2)
+)
+```
+
+En este grafico ya con la eliminacion de las variables mal representadas parece ser que las observaciones o puntos se dividen entre cuadrantes
+
+```{r, fig.width=20, fig.height=20}
+fviz_pca_var(X = modelo,
+col.var = "steelblue",
+select.var = list(cos2 = 0.2))
+```
+
+```{r, fig.width=20, fig.height=20}
+fviz_pca_biplot(modelo,
+col.var = "#2E9FDF",
+col.ind = "#696969",
+select.var = list(cos2 = 0.2))
+```
+
+Es posible ver las agrupaciones o cluster que se generarian por cuadrantes en el caso del segundo cuadrante las observaciones tendrian una correlacion negativa con las variables del cuarto cuadrante al igual que las del primer y tercer cuadrante.
+
+# Como parte del análisis, se calcula la matriz de correlaciones:
+
+```{r}
+datos_cor<- select(datos,-Dates)
+round(cor(datos_cor),2) 
+```
+
+## Calcular la matriz, con el p-value
+
+Una vez que calculamos el coeficiente de correlación, es necesario identificar si es estadísticamente significativo, por lo que calculamos el p-value.
+
+Si el p-value es menor al nivel de significancia que nosotros escogemos, por ejemplo 5%, entonces el coeficiente es estadísticamente significativo.
+
+```{r}
+rcorr(as.matrix(datos_cor))
+```
+
+# Se procede a graficar la matriz de correlaciones:
+
+```{r, fig.width=20, fig.height=20}
+correlacion<-round(cor(datos_cor), 1)
+corrplot(correlacion, method="number", type="upper")
+```
+
+En la grafica de correlaciones se identifica mediante color azul, la correlacion positiva entre variables, a mayor intensidad del color mayor es la correlación positiva entre ellas. Por otra parte, la correlacion negativa, es decir, si el rendimiento de una aumenta, el rendimientos de la otra disminuye, se identifica mediante el color rojo, y su intensidad indica mayor correlacion negativa. 
+
+# Clustering jerárquico: {.tabset .tabset-pills .tabset-fade}
+
+## Clustering jerárquico:
+
+Para proceder con nuestro análisis, dado que datos_cor es una base de datos de serie de tiempo, tenemos que utilizar la traspuesta de la base de datos:
+
+```{r}
+datos_T <- t(datos_cor)
+```
+
+Una vez definida la base de datos, se procede a realizar el análisis de Clustering Jerárquico o Agrupación.
+
+clustering jerárquico es una técnica para agrupar puntos de datos similares en un grupo y separar las diferentes observaciones en diferentes grupos. Los clusters se crean de manera que tengan un orden predeterminado, es decir, una jerarquía. 
+
+Para determinar, la cantidad de clusters con la cuál se estabiliza el modelo, se utiliza la técnica del codo de Jambu:
+
+## Codo de Jambu para definir número de clusters:
+
+```{r}
+InerciaIC<-rep(0,9)
+for(k in 1:9) {
+grupos<-kmeans(datos_T, centers=k, nstart=5,iter.max = 100)
+InerciaIC[k]<-grupos$tot.withinss
+}
+plot(InerciaIC,col="blue",type="b")
+```
+
+El codo de Janbu indica que lo ideal es definir 4 clusters para el modelo. 
+
+Una vez que tenemos el número de clusteres, se procede a realizar el dendograma:
+
+## Cluster Jerárquico, dendogramas según metodo:
+
+### Salto máximo: Se calcula la distancia entre todos los posibles pares formados por una observación del cluster A y una del cluster B. La mayor de todas ellas se selecciona como la distancia entre los dos clusters. Se trata de la medida más conservadora (maximal intercluster dissimilarity).
+
+```{r, fig.width=20, fig.height=20}
+distancias <- dist(datos_T)
+modelo <- hclust(distancias, method = "complete")
+plot(modelo)
+rect.hclust(modelo, k = 4, border = "red")
+```
+
+### Salto mínimo:Se calcula la distancia entre todos los posibles pares formados por una observación del cluster A y una del cluster B. La menor de todas ellas se selecciona como la distancia entre los dos clusters. Se trata de la medida menos conservadora (minimal intercluster dissimilarity).
+
+```{r, fig.width=20, fig.height=20}
+distancias <- dist(datos_T)
+modelo <- hclust(distancias, method = "single")
+plot(modelo)
+rect.hclust(modelo, k = 4, border = "red")
+```
+
+### Salto promedio: Se calcula la distancia entre todos los posibles pares formados por una observación del cluster A y una del cluster B. El valor promedio de todas ellas se selecciona como la distancia entre los dos clusters (mean intercluster dissimilarity).
+
+```{r, fig.width=20, fig.height=20}
+distancias <- dist(datos_T)
+modelo <- hclust(distancias, method = "average")
+plot(modelo)
+rect.hclust(modelo, k = 4, border = "red")
+```
+
+### Salto Centroide: Se calcula el centroide de cada uno de los clusters y se selecciona la distancia entre ellos como la distancia entre los dos clusters.
+
+```{r, fig.width=20, fig.height=20}
+distancias <- dist(datos_T)
+modelo <- hclust(distancias, method = "centroid")
+plot(modelo)
+rect.hclust(modelo, k = 4, border = "red")
+```
+
+### Salto Ward: Hacer variar lo menos posible la inercia intra-clases en cada etapa de agregación es buscar el mínimo de pérdida de inercia inter-clases resultante de la agregación de dos elementos. Así en cada etapa la inercia intra-clases aumenta en la cantidad Δ (y la inercia inter-clases disminuye en esta misma cantidad).
+
+```{r, fig.width=20, fig.height=20}
+distancias <- dist(datos_T)
+modelo <- hclust(distancias, method = "ward.D")
+plot(modelo)
+rect.hclust(modelo, k = 4, border = "red")
+```
+
+### Comparación de métodos:
+
+```{r}
+library(purrr)
+# Vector comparativo de métodos:
+metodos <- c( "average", "single", "complete", "ward")
+names(metodos) <- c( "average", "single", "complete", "ward")
+ 
+# Funcion para comparar métodos:
+ac <- function(x) {
+  agnes(datos_T, method = x)$ac
+}
+map_dbl(metodos, ac)      
+```
+
+# Conclusiones 
+
+Al utilizar la funcion agnes, obtenemos el coeficiente de aglomeración, que mide la cantidad de estructura de agrupamiento encontrada (los valores más cercanos a 1 sugieren una estructura de agrupación fuerte). En este caso, el mejor método es el método ward.  
+
+De acuerdo con los resultados utilizando el método Ward.D, el cluster 1 agrupa las opciones de inversión que corresponden a bonos de deuda de países como Costa Rica, Brasil, República Dominicana, Colombia, y monedas como el Euro, el Yen y el Real. Además, incluye 1 materia prima: Maiz
+
+El cluster 2, incluye los indices accionarios y los cluster 3 y 4, el bitcoin y el petroleo, respectivamente. 
+
+El modelo cumple con nuestras expectativas respecto a identificar de una manera más eficiente los instrumentos que tienen un comportamiento similar entre sí, de esta forma es más sencillo seleccionar los instrumentos que permitan diversificar los portafolios en pro de obtener una mayor rentabilidad de las inversiones. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
